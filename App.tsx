@@ -1,20 +1,79 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useState, useEffect } from "react";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { PaperProvider } from "react-native-paper";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
+import OnboardingScreen from "./src/screens/OnboardingScreen";
+import DashboardScreen from "./src/screens/DashboardScreen";
+import WorkoutSelectionScreen from "./src/screens/WorkoutSelectionScreen";
+import { db, initDatabase } from "./src/database/db";
 
 export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
+    const [isLoading, setIsLoading] = useState(true);
+    const [hasUser, setHasUser] = useState(false);
+    const [currentScreen, setCurrentScreen] = useState<"dashboard" | "workout">("dashboard");
+
+    useEffect(() => {
+        initializeApp();
+    }, []);
+
+    const initializeApp = async () => {
+        try {
+            // Initialize database
+            await initDatabase();
+
+            // Check if user exists
+            const user = db.getCurrentUser();
+            setHasUser(!!user);
+        } catch (error) {
+            console.error("Error initializing app:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleOnboardingComplete = () => {
+        setHasUser(true);
+    };
+
+    if (isLoading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" />
+            </View>
+        );
+    }
+
+    return (
+        <SafeAreaProvider>
+            <PaperProvider>
+                <StatusBar style="auto" />
+                {!hasUser ? (
+                    <OnboardingScreen onComplete={handleOnboardingComplete} />
+                ) : currentScreen === "dashboard" ? (
+                    <DashboardScreen onStartWorkout={() => setCurrentScreen("workout")} />
+                ) : (
+                    <WorkoutSelectionScreen
+                        onBack={() => setCurrentScreen("dashboard")}
+                        onSelectWorkout={(exerciseId, weekNumber) => {
+                            console.log("Selected:", exerciseId, weekNumber);
+                            // Will implement actual workout screen next
+                            alert(`Starting ${exerciseId} - Week ${weekNumber}\n\nWorkout screen coming soon!`);
+                        }}
+                    />
+                )}
+            </PaperProvider>
+        </SafeAreaProvider>
+    );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    container: {
+        flex: 1,
+    },
 });
