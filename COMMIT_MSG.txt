@@ -1,0 +1,13 @@
+feat: implement 5-3-1 workout tracker MVP
+
+Add React Native/Expo app for tracking Jim Wendler's 5-3-1 program:
+
+- User onboarding with 1RM input for main lifts
+- SQLite database (7 tables: users, exercises, training_maxes, cycles, workouts, sets, PRs)
+- Dashboard showing current cycle and training maxes
+- Workout selection screen (week + exercise)
+- TypeScript types and calculation utilities (training max, estimated 1RM, plate loading)
+- React Native Paper UI with safe area handling
+- Complete documentation (REQUIREMENTS.md, README.md, QUICKSTART.md)
+
+Next: workout logging, AMRAP tracking, PR detection

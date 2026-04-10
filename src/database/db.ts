@@ -389,4 +389,141 @@ export const db = {
       [userId]
     );
   },
+
+  getRecentPRs: (userId: number, limit: number = 3) => {
+    const database = openDatabase();
+    return database.getAllSync(
+      `SELECT pr.*, e.name as exercise_name 
+       FROM personal_records pr 
+       JOIN exercises e ON pr.exercise_id = e.id 
+       WHERE pr.user_id = ? 
+       ORDER BY pr.achieved_date DESC, pr.id DESC
+       LIMIT ?`,
+      [userId, limit]
+    );
+  },
+
+  // Get workouts completed in a cycle grouped by week
+  getCycleWorkouts: (cycleId: number, userId: number) => {
+    const database = openDatabase();
+    return database.getAllSync(
+      `SELECT w.week_number, w.exercise_id, e.name as exercise_name, e.category,
+              w.completed, w.id as workout_id
+       FROM workouts w
+       JOIN exercises e ON w.exercise_id = e.id
+       WHERE w.cycle_id = ? AND w.user_id = ? AND w.completed = 1
+       ORDER BY w.week_number, w.exercise_id`,
+      [cycleId, userId]
+    );
+  },
+
+  // Get week 4 completion status
+  getWeek4Completions: (cycleId: number, userId: number) => {
+    const database = openDatabase();
+    return database.getAllSync(
+      `SELECT DISTINCT w.exercise_id, e.name as exercise_name, e.category
+       FROM workouts w
+       JOIN exercises e ON w.exercise_id = e.id
+       WHERE w.cycle_id = ? AND w.user_id = ? AND w.week_number = 4 AND w.completed = 1`,
+      [cycleId, userId]
+    );
+  },
+
+  // Get current week based on completed workouts in active cycle
+  getCurrentWeekInCycle: (cycleId: number, userId: number) => {
+    const database = openDatabase();
+    // Find the highest week that has at least one completed workout
+    const result = database.getFirstSync(
+      `SELECT MAX(week_number) as current_week
+       FROM workouts
+       WHERE cycle_id = ? AND user_id = ? AND completed = 1`,
+      [cycleId, userId]
+    ) as any;
+    return result?.current_week || 1;
+  },
+
+  // Get workouts completed this week (by exercise) in active cycle
+  getWorkoutsThisWeek: (cycleId: number, userId: number, weekNumber: number) => {
+    const database = openDatabase();
+    return database.getAllSync(
+      `SELECT w.exercise_id, e.name as exercise_name, e.category
+       FROM workouts w
+       JOIN exercises e ON w.exercise_id = e.id
+       WHERE w.cycle_id = ? AND w.user_id = ? AND w.week_number = ? AND w.completed = 1`,
+      [cycleId, userId, weekNumber]
+    );
+  },
+
+  // Create a new cycle with incremented training maxes
+  progressToNextCycle: (
+    userId: number,
+    currentCycleId: number,
+    trainingDays: 3 | 4,
+    percentageOption: 1 | 2 = 1
+  ) => {
+    const database = openDatabase();
+    const today = new Date().toISOString().split('T')[0];
+
+    // Complete current cycle
+    database.runSync(
+      `UPDATE cycles SET status = 'completed', end_date = ? WHERE id = ?`,
+      [today, currentCycleId]
+    );
+
+    // Get current cycle number
+    const currentCycle = database.getFirstSync(
+      'SELECT cycle_number FROM cycles WHERE id = ?',
+      [currentCycleId]
+    ) as any;
+
+    const nextCycleNumber = (currentCycle?.cycle_number || 1) + 1;
+
+    // Create new cycle
+    const result = database.runSync(
+      `INSERT INTO cycles (user_id, cycle_number, start_date, percentage_option, training_days, status) 
+       VALUES (?, ?, ?, ?, ?, 'active')`,
+      [userId, nextCycleNumber, today, percentageOption, trainingDays]
+    );
+    const newCycleId = result.lastInsertRowId;
+
+    // Get all current training maxes
+    const trainingMaxes = database.getAllSync(
+      `SELECT tm.*, e.category 
+       FROM training_maxes tm
+       JOIN exercises e ON tm.exercise_id = e.id
+       WHERE tm.user_id = ? 
+       AND tm.id IN (
+         SELECT MAX(id) FROM training_maxes 
+         WHERE user_id = ? 
+         GROUP BY exercise_id
+       )`,
+      [userId, userId]
+    ) as any[];
+
+    // Save new training maxes with progression
+    for (const tm of trainingMaxes) {
+      const increment = (tm.category === 'squat' || tm.category === 'deadlift') ? 10 : 5;
+      const newTrainingMax = tm.training_max + increment;
+      // Estimate new 1RM (add increment to existing 1RM too)
+      const newActual1RM = tm.actual_1rm + increment;
+
+      database.runSync(
+        `INSERT INTO training_maxes (user_id, exercise_id, actual_1rm, training_max, effective_date, notes) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [userId, tm.exercise_id, newActual1RM, newTrainingMax, today, `Auto-progression from Cycle #${currentCycle?.cycle_number}`]
+      );
+    }
+
+    return { newCycleId, nextCycleNumber };
+  },
+
+  // Get total workout count
+  getTotalWorkoutCount: (userId: number) => {
+    const database = openDatabase();
+    const result = database.getFirstSync(
+      `SELECT COUNT(*) as count FROM workouts WHERE user_id = ? AND completed = 1`,
+      [userId]
+    ) as any;
+    return result?.count || 0;
+  },
 };

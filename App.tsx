@@ -4,14 +4,12 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PaperProvider } from "react-native-paper";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
-import DashboardScreen from "./src/screens/DashboardScreen";
-import WorkoutSelectionScreen from "./src/screens/WorkoutSelectionScreen";
+import AppNavigator from "./src/navigation/AppNavigator";
 import { db, initDatabase } from "./src/database/db";
 
 export default function App() {
     const [isLoading, setIsLoading] = useState(true);
     const [hasUser, setHasUser] = useState(false);
-    const [currentScreen, setCurrentScreen] = useState<"dashboard" | "workout">("dashboard");
 
     useEffect(() => {
         initializeApp();
@@ -48,20 +46,7 @@ export default function App() {
         <SafeAreaProvider>
             <PaperProvider>
                 <StatusBar style="auto" />
-                {!hasUser ? (
-                    <OnboardingScreen onComplete={handleOnboardingComplete} />
-                ) : currentScreen === "dashboard" ? (
-                    <DashboardScreen onStartWorkout={() => setCurrentScreen("workout")} />
-                ) : (
-                    <WorkoutSelectionScreen
-                        onBack={() => setCurrentScreen("dashboard")}
-                        onSelectWorkout={(exerciseId, weekNumber) => {
-                            console.log("Selected:", exerciseId, weekNumber);
-                            // Will implement actual workout screen next
-                            alert(`Starting ${exerciseId} - Week ${weekNumber}\n\nWorkout screen coming soon!`);
-                        }}
-                    />
-                )}
+                {!hasUser ? <OnboardingScreen onComplete={handleOnboardingComplete} /> : <AppNavigator />}
             </PaperProvider>
         </SafeAreaProvider>
     );
@@ -72,8 +57,5 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: "center",
         alignItems: "center",
-    },
-    container: {
-        flex: 1,
     },
 });
