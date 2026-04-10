@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Text, Card, Chip, Divider } from "react-native-paper";
-import { useIsFocused } from "@react-navigation/native";
+import { Text, Card, Chip, Divider, useTheme } from "react-native-paper";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { db, openDatabase } from "../database/db";
+import { HistoryStackParamList } from "../navigation/HistoryNavigator";
 
 interface WorkoutHistoryItem {
     id: number;
@@ -18,8 +20,12 @@ interface WorkoutHistoryItem {
     is_pr: boolean;
 }
 
+type HistoryNavProp = NativeStackNavigationProp<HistoryStackParamList, "HistoryList">;
+
 export default function HistoryScreen() {
     const isFocused = useIsFocused();
+    const theme = useTheme();
+    const navigation = useNavigation<HistoryNavProp>();
     const [workouts, setWorkouts] = useState<WorkoutHistoryItem[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -125,7 +131,7 @@ export default function HistoryScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.safeArea} edges={["top"]}>
+        <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]} edges={["top"]}>
             <ScrollView style={styles.container}>
                 <View style={styles.content}>
                     <Text variant="headlineMedium" style={styles.title}>
@@ -159,7 +165,19 @@ export default function HistoryScreen() {
                                         </Text>
                                     ) : null}
 
-                                    <Card style={[styles.workoutCard, workout.is_pr && styles.prCard]}>
+                                    <Card
+                                        style={[styles.workoutCard, !!workout.is_pr && styles.prCard]}
+                                        onPress={() =>
+                                            navigation.navigate("WorkoutDetail", {
+                                                workoutId: workout.id,
+                                                exerciseName: workout.exercise_name,
+                                                weekNumber: workout.week_number,
+                                                completedAt: workout.completed_at,
+                                                trainingMax: workout.training_max_used,
+                                                isPr: !!workout.is_pr,
+                                            })
+                                        }
+                                    >
                                         <Card.Content>
                                             <View style={styles.workoutHeader}>
                                                 <View style={styles.workoutInfo}>
@@ -168,7 +186,7 @@ export default function HistoryScreen() {
                                                         {getWeekLabel(workout.week_number)}
                                                     </Text>
                                                 </View>
-                                                {workout.is_pr && (
+                                                {!!workout.is_pr && (
                                                     <Chip
                                                         mode="flat"
                                                         style={styles.prChip}
@@ -228,7 +246,6 @@ export default function HistoryScreen() {
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
-        backgroundColor: "#f5f5f5",
     },
     container: {
         flex: 1,
@@ -261,7 +278,6 @@ const styles = StyleSheet.create({
     prCard: {
         borderLeftWidth: 4,
         borderLeftColor: "#FFD700",
-        backgroundColor: "#FFFEF7",
     },
     workoutHeader: {
         flexDirection: "row",

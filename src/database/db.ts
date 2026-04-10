@@ -130,6 +130,35 @@ export const initDatabase = async (): Promise<void> => {
     );
   `);
 
+  // Cycle lift config table (skip/swap lifts)
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS cycle_lift_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cycle_id INTEGER NOT NULL,
+      exercise_id INTEGER NOT NULL,
+      is_skipped INTEGER DEFAULT 0,
+      substitute_name TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (cycle_id) REFERENCES cycles(id),
+      FOREIGN KEY (exercise_id) REFERENCES exercises(id),
+      UNIQUE(cycle_id, exercise_id)
+    );
+  `);
+
+  // Migration: add substitute_name column to existing installs
+  try {
+    db.execSync('ALTER TABLE cycle_lift_config ADD COLUMN substitute_name TEXT');
+  } catch (_) {
+    // Column already exists — safe to ignore
+  }
+
+  // Migration: add use_small_increments column (stall reset option)
+  try {
+    db.execSync('ALTER TABLE cycle_lift_config ADD COLUMN use_small_increments INTEGER DEFAULT 0');
+  } catch (_) {
+    // Column already exists — safe to ignore
+  }
+
   // Seed main exercises if they don't exist
   const mainExercises = [
     { name: 'Military Press', type: 'main', category: 'press' },
@@ -171,10 +200,17 @@ export const db = {
   // Exercise operations
   getExercises: (type?: 'main' | 'assistance') => {
     const database = openDatabase();
+    // Canonical 5/3/1 day order: Squat → Bench → Deadlift → Press
+    const ORDER_CLAUSE = `ORDER BY CASE category
+      WHEN 'squat'    THEN 1
+      WHEN 'bench'    THEN 2
+      WHEN 'deadlift' THEN 3
+      WHEN 'press'    THEN 4
+      ELSE 5 END, id`;
     if (type) {
-      return database.getAllSync('SELECT * FROM exercises WHERE type = ? ORDER BY id', [type]);
+      return database.getAllSync(`SELECT * FROM exercises WHERE type = ? ${ORDER_CLAUSE}`, [type]);
     }
-    return database.getAllSync('SELECT * FROM exercises ORDER BY id');
+    return database.getAllSync(`SELECT * FROM exercises ${ORDER_CLAUSE}`);
   },
 
   getExerciseById: (exerciseId: number) => {
@@ -227,7 +263,12 @@ export const db = {
          WHERE user_id = ? 
          GROUP BY exercise_id
        )
-       ORDER BY e.id`,
+       ORDER BY CASE e.category
+         WHEN 'squat'    THEN 1
+         WHEN 'bench'    THEN 2
+         WHEN 'deadlift' THEN 3
+         WHEN 'press'    THEN 4
+         ELSE 5 END, e.id`,
       [userId, userId]
     );
   },
@@ -455,11 +496,13 @@ export const db = {
   },
 
   // Create a new cycle with incremented training maxes
+  // skippedExerciseIds: exercise IDs that were skipped this cycle — their TMs are NOT incremented
   progressToNextCycle: (
     userId: number,
     currentCycleId: number,
     trainingDays: 3 | 4,
-    percentageOption: 1 | 2 = 1
+    percentageOption: 1 | 2 = 1,
+    skippedExerciseIds: number[] = []
   ) => {
     const database = openDatabase();
     const today = new Date().toISOString().split('T')[0];
@@ -500,21 +543,52 @@ export const db = {
       [userId, userId]
     ) as any[];
 
-    // Save new training maxes with progression
+    // Load per-lift small-increment flags from the cycle being completed
+    const liftConfigRows = database.getAllSync(
+      `SELECT exercise_id, use_small_increments FROM cycle_lift_config WHERE cycle_id = ?`,
+      [currentCycleId]
+    ) as any[];
+    const smallIncrMap: Record<number, boolean> = {};
+    liftConfigRows.forEach((r) => { smallIncrMap[r.exercise_id] = r.use_small_increments === 1; });
+
+    // Save new training maxes — skip progression for skipped lifts, halve for small increments
     for (const tm of trainingMaxes) {
-      const increment = (tm.category === 'squat' || tm.category === 'deadlift') ? 10 : 5;
+      const wasSkipped = skippedExerciseIds.includes(tm.exercise_id);
+      const isLower = tm.category === 'squat' || tm.category === 'deadlift';
+      const useSmall = smallIncrMap[tm.exercise_id] ?? false;
+
+      // Default: upper +5, lower +10. Small: upper +2.5, lower +5
+      const defaultIncrement = isLower ? 10 : 5;
+      const smallIncrement   = isLower ? 5  : 2.5;
+      const increment = wasSkipped ? 0 : (useSmall ? smallIncrement : defaultIncrement);
+
       const newTrainingMax = tm.training_max + increment;
-      // Estimate new 1RM (add increment to existing 1RM too)
-      const newActual1RM = tm.actual_1rm + increment;
+      const newActual1RM   = tm.actual_1rm   + increment;
+      const incrLabel = useSmall ? `+${smallIncrement} (small)` : `+${defaultIncrement}`;
+      const notes = wasSkipped
+        ? `Skipped — no progression (Cycle #${currentCycle?.cycle_number})`
+        : `Auto-progression from Cycle #${currentCycle?.cycle_number} (${incrLabel})`;
 
       database.runSync(
         `INSERT INTO training_maxes (user_id, exercise_id, actual_1rm, training_max, effective_date, notes) 
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [userId, tm.exercise_id, newActual1RM, newTrainingMax, today, `Auto-progression from Cycle #${currentCycle?.cycle_number}`]
+        [userId, tm.exercise_id, newActual1RM, newTrainingMax, today, notes]
       );
     }
 
     return { newCycleId, nextCycleNumber };
+  },
+
+  /** Returns the exercise_id of the most recently completed workout in this cycle. */
+  getLastCompletedExerciseId: (cycleId: number, userId: number): number | null => {
+    const database = openDatabase();
+    const row = database.getFirstSync(
+      `SELECT exercise_id FROM workouts
+       WHERE cycle_id = ? AND user_id = ? AND completed = 1
+       ORDER BY completed_at DESC, id DESC LIMIT 1`,
+      [cycleId, userId]
+    ) as any;
+    return row?.exercise_id ?? null;
   },
 
   // Get total workout count
@@ -525,5 +599,165 @@ export const db = {
       [userId]
     ) as any;
     return result?.count || 0;
+  },
+
+  // ── Skip / Swap Lift ──────────────────────────────────────────────────────
+
+  /** Mark a lift as skipped for this cycle (upsert). */
+  skipLift: (cycleId: number, exerciseId: number) => {
+    const database = openDatabase();
+    database.runSync(
+      `INSERT INTO cycle_lift_config (cycle_id, exercise_id, is_skipped)
+       VALUES (?, ?, 1)
+       ON CONFLICT(cycle_id, exercise_id) DO UPDATE SET is_skipped = 1`,
+      [cycleId, exerciseId]
+    );
+  },
+
+  /** Un-skip a lift for this cycle. */
+  unskipLift: (cycleId: number, exerciseId: number) => {
+    const database = openDatabase();
+    database.runSync(
+      `INSERT INTO cycle_lift_config (cycle_id, exercise_id, is_skipped)
+       VALUES (?, ?, 0)
+       ON CONFLICT(cycle_id, exercise_id) DO UPDATE SET is_skipped = 0`,
+      [cycleId, exerciseId]
+    );
+  },
+
+  /** Returns an array of exercise IDs that are currently skipped for this cycle. */
+  getSkippedExerciseIds: (cycleId: number): number[] => {
+    const database = openDatabase();
+    const rows = database.getAllSync(
+      `SELECT exercise_id FROM cycle_lift_config WHERE cycle_id = ? AND is_skipped = 1`,
+      [cycleId]
+    ) as any[];
+    return rows.map((r) => r.exercise_id);
+  },
+
+  /**
+   * Swap a lift slot to a substitute exercise name (upsert).
+   * The original exercise_id is kept for TM tracking and progression.
+   * e.g. swapLift(cycleId, deadliftId, "Romanian Deadlift")
+   */
+  swapLift: (cycleId: number, exerciseId: number, substituteName: string) => {
+    const database = openDatabase();
+    database.runSync(
+      `INSERT INTO cycle_lift_config (cycle_id, exercise_id, is_skipped, substitute_name)
+       VALUES (?, ?, 0, ?)
+       ON CONFLICT(cycle_id, exercise_id) DO UPDATE SET is_skipped = 0, substitute_name = ?`,
+      [cycleId, exerciseId, substituteName, substituteName]
+    );
+  },
+
+  /** Clear a swap — lift returns to its original name. */
+  clearSwap: (cycleId: number, exerciseId: number) => {
+    const database = openDatabase();
+    database.runSync(
+      `INSERT INTO cycle_lift_config (cycle_id, exercise_id, is_skipped, substitute_name)
+       VALUES (?, ?, 0, NULL)
+       ON CONFLICT(cycle_id, exercise_id) DO UPDATE SET substitute_name = NULL`,
+      [cycleId, exerciseId]
+    );
+  },
+
+  /**
+   * Returns the full lift config for this cycle.
+   * Shape: { exercise_id, is_skipped, substitute_name, use_small_increments }[]
+   */
+  getLiftConfig: (cycleId: number): { exercise_id: number; is_skipped: boolean; substitute_name: string | null; use_small_increments: boolean }[] => {
+    const database = openDatabase();
+    const rows = database.getAllSync(
+      `SELECT exercise_id, is_skipped, substitute_name, use_small_increments
+       FROM cycle_lift_config WHERE cycle_id = ?`,
+      [cycleId]
+    ) as any[];
+    return rows.map((r) => ({
+      exercise_id: r.exercise_id,
+      is_skipped: r.is_skipped === 1,
+      substitute_name: r.substitute_name ?? null,
+      use_small_increments: r.use_small_increments === 1,
+    }));
+  },
+
+  // ── Stalling Protocol ────────────────────────────────────────────────────
+
+  /**
+   * Returns the last `limit` AMRAP set results for a given exercise.
+   * Each row: { actual_reps, prescribed_reps, cycle_id, week_number }
+   */
+  getAmrapHistory: (userId: number, exerciseId: number, limit: number = 5) => {
+    const database = openDatabase();
+    return database.getAllSync(
+      `SELECT s.actual_reps, s.prescribed_reps, w.cycle_id, w.week_number
+       FROM sets s
+       JOIN workouts w ON s.workout_id = w.id
+       WHERE s.is_amrap = 1
+         AND w.exercise_id = ?
+         AND w.user_id = ?
+         AND s.completed = 1
+       ORDER BY w.cycle_id DESC, w.id DESC
+       LIMIT ?`,
+      [exerciseId, userId, limit]
+    ) as { actual_reps: number; prescribed_reps: number; cycle_id: number; week_number: number }[];
+  },
+
+  /**
+   * Returns stall/warning status for a lift.
+   * stalled  = missed prescribed minimum on the last 2 consecutive AMRAP sets
+   * warning  = missed prescribed minimum on the most recent AMRAP set (first miss)
+   */
+  getStallStatus: (userId: number, exerciseId: number): { isStalled: boolean; isWarning: boolean } => {
+    const history = db.getAmrapHistory(userId, exerciseId, 2);
+    if (history.length === 0) return { isStalled: false, isWarning: false };
+
+    const missed = (row: { actual_reps: number; prescribed_reps: number }) =>
+      row.actual_reps < row.prescribed_reps;
+
+    const mostRecent = history[0];
+    const secondMostRecent = history[1];
+
+    const isWarning = missed(mostRecent);
+    const isStalled = isWarning && !!secondMostRecent && missed(secondMostRecent);
+
+    return { isStalled, isWarning };
+  },
+
+  /**
+   * Reset a lift's training max to 90% of current TM (Wendler "5 forward, 3 back").
+   * Saves a new training_max entry.
+   */
+  resetTrainingMax: (userId: number, exerciseId: number): number => {
+    const database = openDatabase();
+    const current = database.getFirstSync(
+      `SELECT training_max FROM training_maxes
+       WHERE user_id = ? AND exercise_id = ?
+       ORDER BY effective_date DESC, id DESC LIMIT 1`,
+      [userId, exerciseId]
+    ) as any;
+
+    if (!current) return 0;
+
+    const newTM = Math.round((current.training_max * 0.9) / 5) * 5; // round to nearest 5
+    const newActual1RM = Math.round((newTM / 0.9) / 5) * 5;
+    const today = new Date().toISOString().split('T')[0];
+
+    database.runSync(
+      `INSERT INTO training_maxes (user_id, exercise_id, actual_1rm, training_max, effective_date, notes)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [userId, exerciseId, newActual1RM, newTM, today, 'Stall reset — TM × 0.9 (5 forward, 3 back)']
+    );
+    return newTM;
+  },
+
+  /** Toggle small increments for a lift in the current cycle (+2.5/+5 instead of +5/+10). */
+  setSmallIncrements: (cycleId: number, exerciseId: number, enabled: boolean) => {
+    const database = openDatabase();
+    database.runSync(
+      `INSERT INTO cycle_lift_config (cycle_id, exercise_id, use_small_increments)
+       VALUES (?, ?, ?)
+       ON CONFLICT(cycle_id, exercise_id) DO UPDATE SET use_small_increments = ?`,
+      [cycleId, exerciseId, enabled ? 1 : 0, enabled ? 1 : 0]
+    );
   },
 };

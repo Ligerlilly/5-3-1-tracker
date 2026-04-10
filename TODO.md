@@ -101,6 +101,51 @@
 - [ ] Reset/recalculate from new 1RM test
 - [ ] Training max progression graph
 
+### Stalling Protocol (from Wendler "5 steps forward, 3 steps back")
+
+- [ ] Detect when user misses prescribed minimum reps on AMRAP set 2x in a row
+- [ ] Prompt user to reset: New Training Max = Current TM × 0.9
+- [ ] Allow reset on individual lifts independently
+- [ ] Option to switch to smaller increments (+2.5/+5 lbs instead of +5/+10)
+- [ ] Show warning indicator on dashboard when a lift is trending toward a stall
+
+### Assistance Work — Strength vs. Hypertrophy Split
+
+Gemini's Triumvirate layout distinguishes two accessory slots per session:
+
+- **Strength Accessory** — heavier, lower reps (e.g., Pause Bench 5×5 @ 70%, Good Mornings 5×5)
+- **Hypertrophy Accessory** — lighter, higher reps (e.g., Dips 5×15, Chin-ups 5×10, Hanging Leg Raises)
+
+Currently the app groups suggestions by muscle category only. Updates needed:
+
+- [ ] Tag assistance exercises in the suggestion list as `strength` or `hypertrophy` type
+- [ ] Show two clearly labelled accessory slots in WorkoutScreen ("Strength Accessory" + "Hypertrophy Accessory")
+- [ ] Pre-populate each slot with recommended exercises matching that intent (e.g., Pause Bench / Close Grip Bench for strength slot on Bench day; Dips / DB Rows for hypertrophy slot)
+- [ ] Let user swap the suggestion for any exercise of the same type
+- [ ] Save selected assistance exercises and sets/reps to the `assistance_work` table
+
+### Skip Lift / Swap Lift
+
+Allow users to remove or replace a main lift for one or more cycles (e.g., replace Deadlift with a second Squat day while recovering from an injury).
+
+**Skip Lift** — temporarily deactivate a main lift for the current cycle:
+
+- [x] Add `cycle_lift_config` table per lift per cycle
+- [x] UI on WorkoutSelectionScreen to mark a lift as "skipped this cycle" (long-press or ⋮ icon per card)
+- [x] Skipped lifts grayed out / shown under "SKIPPED THIS CYCLE" section
+- [x] Cycle completion only counts non-skipped lifts (fix `getWeek4Completions` check)
+- [x] Auto-progression skips TM increment for skipped lifts at cycle boundary
+- [x] Dashboard hides active TM cards for skipped lifts (shows frozen TM in collapsed section)
+
+**Swap Lift** — replace one main lift with another exercise (same category, different movement):
+
+- [x] UI to assign a substitute exercise to a main lift slot via ⋮ menu → "Swap Lift" → picker (5 options per category)
+- [x] Substitute inherits the original lift's Training Max and progression rate (+10 lbs lower body)
+- [x] Substituted lift shown in WorkoutScreen with correct substitute name + "↔ Original slot" subtitle
+- [x] Dashboard TM card shows substitute name + orange SWAPPED badge + "↔ Original slot" note
+- [x] CycleCompleteScreen shows "↔ Original slot • +X lbs" for swapped lifts in progression card
+- [x] "Clear Swap" option returns lift to original name at any time via ⋮ menu
+
 ### Exercise Customization
 
 - [ ] Add custom assistance exercises
@@ -158,12 +203,18 @@
 - [ ] Export workout summary as image
 - [ ] Integration with fitness apps (optional)
 
-### Analytics
+### Analytics & Projections
 
 - [ ] Volume tracking (total sets, total reps, total weight)
 - [ ] Strength standards comparison
-- [ ] Progress predictions
+- [ ] **Strength projection calculator** — given current TM and cycle increment, project estimated 1RM at 3/6/12 months
+- [ ] Progress predictions (e.g., "at current pace you'll hit 315 lb bench in ~X cycles")
 - [ ] Training frequency stats
+
+### Advanced Scheduling
+
+- [ ] 3-day rotating split (e.g., Press → Deadlift → Bench → Squat across sessions, not calendar weeks)
+- [ ] "Lift twice a week" option — add a lift variation (e.g., Close Grip Bench on Press day) as a secondary accessory to increase frequency for a target lift
 
 ## 🐛 Phase 7: Testing & Deployment
 
@@ -236,6 +287,8 @@
 ✅ **Workout History** - Full history with PR badges and date grouping  
 ✅ **Cycle Management** - Auto-detect cycle completion, progression screen, new cycle creation  
 ✅ **Training Max Progression** - +5 lbs upper body, +10 lbs lower body per cycle  
+✅ **Skip Lift** - Long-press any lift to skip it for a cycle; TM stays frozen, cycle completes without it  
+✅ **Swap Lift** - Replace any main lift with a substitute via ⋮ menu; inherits original TM + progression; shown everywhere with orange SWAPPED badge  
 ✅ **React Navigation** - Bottom tabs + stack navigation  
 ✅ **Database** - All data persisted in SQLite
 

@@ -11,6 +11,8 @@ export type DashboardStackParamList = {
     Workout: {
         exerciseId: number;
         weekNumber: 1 | 2 | 3 | 4;
+        /** Display name override when a lift has been swapped (e.g. "Romanian Deadlift") */
+        substituteName?: string;
     };
     CycleComplete: {
         cycleId: number;

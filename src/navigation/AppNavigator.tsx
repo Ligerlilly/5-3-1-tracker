@@ -1,9 +1,11 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, DarkTheme, DefaultTheme } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { useColorScheme } from "react-native";
+import { useTheme } from "react-native-paper";
 import DashboardNavigator from "./DashboardNavigator";
-import HistoryScreen from "../screens/HistoryScreen";
+import HistoryNavigator from "./HistoryNavigator";
 
 export type RootTabParamList = {
     Home: undefined;
@@ -13,12 +15,32 @@ export type RootTabParamList = {
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 export default function AppNavigator() {
+    const colorScheme = useColorScheme();
+    const paperTheme = useTheme();
+    const navTheme = colorScheme === "dark" ? DarkTheme : DefaultTheme;
+
+    // Blend React Navigation's theme with our Paper background color
+    const theme = {
+        ...navTheme,
+        colors: {
+            ...navTheme.colors,
+            background: paperTheme.colors.background,
+            card: paperTheme.colors.surface,
+            text: paperTheme.colors.onSurface,
+            border: paperTheme.colors.outlineVariant,
+        },
+    };
+
     return (
-        <NavigationContainer>
+        <NavigationContainer theme={theme}>
             <Tab.Navigator
                 screenOptions={{
-                    tabBarActiveTintColor: "#6200ea",
-                    tabBarInactiveTintColor: "gray",
+                    tabBarActiveTintColor: paperTheme.colors.primary,
+                    tabBarInactiveTintColor: paperTheme.colors.onSurfaceVariant,
+                    tabBarStyle: {
+                        backgroundColor: paperTheme.colors.surface,
+                        borderTopColor: paperTheme.colors.outlineVariant,
+                    },
                     headerShown: false,
                 }}
             >
@@ -34,10 +56,10 @@ export default function AppNavigator() {
                 />
                 <Tab.Screen
                     name="History"
-                    component={HistoryScreen}
+                    component={HistoryNavigator}
                     options={{
                         title: "History",
-                        headerShown: true,
+                        headerShown: false,
                         tabBarIcon: ({ focused, color, size }) => (
                             <Ionicons name={focused ? "list" : "list-outline"} size={size} color={color} />
                         ),
