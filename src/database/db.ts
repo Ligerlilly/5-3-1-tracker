@@ -705,20 +705,45 @@ export const db = {
   /**
    * Returns stall/warning status for a lift.
    * stalled  = missed prescribed minimum on the last 2 consecutive AMRAP sets
+   *            (only counting sets that occurred AFTER the most recent TM reset)
    * warning  = missed prescribed minimum on the most recent AMRAP set (first miss)
+   *
+   * A TM reset clears the stall slate — misses before the reset are ignored.
    */
   getStallStatus: (userId: number, exerciseId: number): { isStalled: boolean; isWarning: boolean } => {
-    const history = db.getAmrapHistory(userId, exerciseId, 2);
-    if (history.length === 0) return { isStalled: false, isWarning: false };
+    const database = openDatabase();
+
+    // Find the most recent stall reset date for this lift (if any)
+    const lastReset = database.getFirstSync(
+      `SELECT created_at FROM training_maxes
+       WHERE user_id = ? AND exercise_id = ? AND notes LIKE 'Stall reset%'
+       ORDER BY id DESC LIMIT 1`,
+      [userId, exerciseId]
+    ) as any;
+    const resetCutoff: string | null = lastReset?.created_at ?? null;
+
+    // Fetch the last 2 AMRAP sets, filtering to only those AFTER the last reset
+    const rows = database.getAllSync(
+      `SELECT s.actual_reps, s.prescribed_reps, w.cycle_id, w.week_number
+       FROM sets s
+       JOIN workouts w ON s.workout_id = w.id
+       WHERE s.is_amrap = 1
+         AND w.exercise_id = ?
+         AND w.user_id = ?
+         AND s.completed = 1
+         ${resetCutoff ? "AND s.created_at > ?" : ""}
+       ORDER BY w.cycle_id DESC, w.id DESC
+       LIMIT 2`,
+      resetCutoff ? [exerciseId, userId, resetCutoff] : [exerciseId, userId]
+    ) as { actual_reps: number; prescribed_reps: number; cycle_id: number; week_number: number }[];
+
+    if (rows.length === 0) return { isStalled: false, isWarning: false };
 
     const missed = (row: { actual_reps: number; prescribed_reps: number }) =>
       row.actual_reps < row.prescribed_reps;
 
-    const mostRecent = history[0];
-    const secondMostRecent = history[1];
-
-    const isWarning = missed(mostRecent);
-    const isStalled = isWarning && !!secondMostRecent && missed(secondMostRecent);
+    const isWarning = missed(rows[0]);
+    const isStalled = isWarning && rows.length >= 2 && missed(rows[1]);
 
     return { isStalled, isWarning };
   },
