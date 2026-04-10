@@ -289,13 +289,17 @@ export default function WorkoutScreen() {
 
             // ── Build completion alert(s) — chained so stall never gets overwritten ─────
 
-            // Step 1: figure out PR status
+            // Step 1: figure out PR status.
+            // A PR requires e1RM to beat both the Training Max and the previous best.
+            // e1RM < TM means you didn't even match your established baseline — not worth celebrating.
             const amrapSet = sets.find((s) => s.isAMRAP && s.actualReps);
             let prMessage: string | null = null;
             if (amrapSet && parseInt(amrapSet.actualReps) > 0) {
                 const estimated1RM = calculateEstimated1RM(amrapSet.weight, parseInt(amrapSet.actualReps));
                 const previousBest: any = db.getBestPR((user as any).id, exerciseId);
-                const isPR = !previousBest || estimated1RM > previousBest.estimated_1rm;
+                const beatsTM = estimated1RM > trainingMax;
+                const beatsPrevious = !previousBest || estimated1RM > previousBest.estimated_1rm;
+                const isPR = beatsTM && beatsPrevious;
                 if (isPR) {
                     db.savePR(
                         (user as any).id,
@@ -306,7 +310,7 @@ export default function WorkoutScreen() {
                         today,
                         workoutId as number,
                     );
-                    prMessage = `🎉 NEW PR! 🎉\n\nNew estimated 1RM: ${Math.round(estimated1RM)} lbs\n${amrapSet.weight} lbs × ${amrapSet.actualReps} reps`;
+                    prMessage = `🎉 NEW PR! 🎉\n\nEstimated 1RM: ${Math.round(estimated1RM)} lbs\n${amrapSet.weight} lbs × ${amrapSet.actualReps} reps`;
                 }
             }
 
