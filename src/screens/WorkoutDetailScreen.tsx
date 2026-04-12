@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Text, Card, Chip, Divider, useTheme } from "react-native-paper";
+import { Text, Card, Divider, useTheme } from "react-native-paper";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { HistoryStackParamList } from "../navigation/HistoryNavigator";
 import { openDatabase } from "../database/db";
+import { formatDate, getWeekLabel } from "../utils/format";
+import LoadingScreen from "../components/common/LoadingScreen";
+import PRChip from "../components/common/PRChip";
 
 type Props = NativeStackScreenProps<HistoryStackParamList, "WorkoutDetail">;
 
@@ -54,37 +57,11 @@ export default function WorkoutDetailScreen({ route }: Props) {
         }
     };
 
-    const getWeekLabel = (weekNumber: number) => {
-        const labels: Record<number, string> = {
-            1: "Week 1 (3×5)",
-            2: "Week 2 (3×3)",
-            3: "Week 3 (5/3/1)",
-            4: "Week 4 (Deload)",
-        };
-        return labels[weekNumber] || `Week ${weekNumber}`;
-    };
-
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-        });
-    };
-
     const workSets = sets.filter((s) => s.set_type === "work");
     const warmupSets = sets.filter((s) => s.set_type === "warmup");
 
     if (loading) {
-        return (
-            <SafeAreaView style={styles.safeArea}>
-                <View style={styles.loadingContainer}>
-                    <Text>Loading workout details...</Text>
-                </View>
-            </SafeAreaView>
-        );
+        return <LoadingScreen message="Loading workout details..." />;
     }
 
     return (
@@ -98,11 +75,7 @@ export default function WorkoutDetailScreen({ route }: Props) {
                                 <Text variant="headlineSmall" style={styles.exerciseName}>
                                     {exerciseName}
                                 </Text>
-                                {isPr && (
-                                    <Chip mode="flat" style={styles.prChip} textStyle={styles.prChipText}>
-                                        PR! 🏆
-                                    </Chip>
-                                )}
+                                {isPr && <PRChip />}
                             </View>
                             <Text
                                 variant="bodyMedium"
@@ -213,11 +186,6 @@ const styles = StyleSheet.create({
         padding: 16,
         gap: 12,
     },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-    },
     headerCard: {
         marginBottom: 4,
     },
@@ -247,14 +215,6 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     tmValue: {
-        fontWeight: "bold",
-    },
-    prChip: {
-        backgroundColor: "#FFD700",
-        marginLeft: 8,
-    },
-    prChipText: {
-        color: "#000",
         fontWeight: "bold",
     },
     setsCard: {

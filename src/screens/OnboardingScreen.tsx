@@ -1,10 +1,13 @@
 import React, { useState } from "react";
 import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { TextInput, Button, Text, HelperText, SegmentedButtons, useTheme } from "react-native-paper";
+import { Button, Text, HelperText, useTheme } from "react-native-paper";
 import { db, initDatabase } from "../database/db";
 import { calculateTrainingMax } from "../utils/calculations";
 import { MAIN_EXERCISES } from "../types";
+import TrainingSplitPicker from "../components/onboarding/TrainingSplitPicker";
+import OneRMInputList from "../components/onboarding/OneRMInputList";
+import { TextInput } from "react-native-paper";
 
 interface OnboardingScreenProps {
     onComplete: () => void;
@@ -14,17 +17,13 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
     const theme = useTheme();
     const [name, setName] = useState("");
     const [trainingSplit, setTrainingSplit] = useState<"3" | "4">("3");
-    const [oneRepMaxes, setOneRepMaxes] = useState({
-        "Military Press": "",
-        Deadlift: "",
-        "Bench Press": "",
-        Squat: "",
-    });
+    const [oneRepMaxes, setOneRepMaxes] = useState<Record<string, string>>(
+        Object.fromEntries(MAIN_EXERCISES.map((e) => [e.name, ""])),
+    );
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async () => {
-        // Validate inputs
         const newErrors: Record<string, string> = {};
 
         if (!name.trim()) {
@@ -32,7 +31,7 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
         }
 
         MAIN_EXERCISES.forEach((exercise) => {
-            const value = oneRepMaxes[exercise.name as keyof typeof oneRepMaxes];
+            const value = oneRepMaxes[exercise.name];
             if (!value || parseFloat(value) <= 0) {
                 newErrors[exercise.name] = `Valid ${exercise.name} 1RM is required`;
             }
@@ -46,28 +45,21 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
         setLoading(true);
 
         try {
-            // Initialize database
             await initDatabase();
 
-            // Create user
             const userId = db.createUser(name.trim(), "lbs", 5);
-
-            // Get exercise IDs and save training maxes
             const today = new Date().toISOString().split("T")[0];
 
             for (const exercise of MAIN_EXERCISES) {
                 const exerciseRecord = db.getExerciseByName(exercise.name) as any;
                 if (exerciseRecord) {
-                    const actual1RM = parseFloat(oneRepMaxes[exercise.name as keyof typeof oneRepMaxes]);
+                    const actual1RM = parseFloat(oneRepMaxes[exercise.name]);
                     const trainingMax = calculateTrainingMax(actual1RM);
-
                     db.saveTrainingMax(userId as number, exerciseRecord.id, actual1RM, trainingMax, today);
                 }
             }
 
-            // Create first cycle with selected training split
             db.createCycle(userId as number, 1, today, 1, parseInt(trainingSplit) as 3 | 4);
-
             onComplete();
         } catch (error) {
             console.error("Error during onboarding:", error);
@@ -89,7 +81,6 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
                             Let's get started by setting up your profile and training maxes.
                         </Text>
 
-                        {/* Name Input */}
                         <TextInput
                             label="Your Name"
                             value={name}
@@ -100,42 +91,8 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
                         />
                         {errors.name && <HelperText type="error">{errors.name}</HelperText>}
 
-                        {/* Training Split Selection */}
-                        <Text variant="titleMedium" style={styles.sectionTitle}>
-                            Training Schedule
-                        </Text>
-                        <Text variant="bodySmall" style={styles.helperText}>
-                            Choose how many days per week you want to train.
-                        </Text>
-                        <SegmentedButtons
-                            value={trainingSplit}
-                            onValueChange={(value) => setTrainingSplit(value as "3" | "4")}
-                            buttons={[
-                                {
-                                    value: "3",
-                                    label: "3 Days/Week",
-                                    icon: "calendar-week",
-                                },
-                                {
-                                    value: "4",
-                                    label: "4 Days/Week",
-                                    icon: "calendar",
-                                },
-                            ]}
-                            style={styles.segmented}
-                        />
-                        {trainingSplit === "3" && (
-                            <HelperText type="info" style={styles.infoText}>
-                                Alternating weeks: Squat/Bench/Deadlift, then Bench/Squat/Press
-                            </HelperText>
-                        )}
-                        {trainingSplit === "4" && (
-                            <HelperText type="info" style={styles.infoText}>
-                                One main lift per day: Squat, Bench, Deadlift, Press
-                            </HelperText>
-                        )}
+                        <TrainingSplitPicker value={trainingSplit} onChange={setTrainingSplit} />
 
-                        {/* 1RM Inputs */}
                         <Text variant="titleMedium" style={styles.sectionTitle}>
                             Enter Your One Rep Maxes (1RM)
                         </Text>
@@ -143,25 +100,13 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
                             Be conservative! The program works best when you start lighter than you think.
                         </Text>
 
-                        {MAIN_EXERCISES.map((exercise) => (
-                            <View key={exercise.name}>
-                                <TextInput
-                                    label={`${exercise.name} 1RM (lbs)`}
-                                    value={oneRepMaxes[exercise.name as keyof typeof oneRepMaxes]}
-                                    onChangeText={(value) =>
-                                        setOneRepMaxes((prev) => ({
-                                            ...prev,
-                                            [exercise.name]: value,
-                                        }))
-                                    }
-                                    mode="outlined"
-                                    keyboardType="numeric"
-                                    style={styles.input}
-                                    error={!!errors[exercise.name]}
-                                />
-                                {errors[exercise.name] && <HelperText type="error">{errors[exercise.name]}</HelperText>}
-                            </View>
-                        ))}
+                        <OneRMInputList
+                            values={oneRepMaxes}
+                            errors={errors}
+                            onChange={(exerciseName, value) =>
+                                setOneRepMaxes((prev) => ({ ...prev, [exerciseName]: value }))
+                            }
+                        />
 
                         {errors.general && (
                             <HelperText type="error" style={styles.generalError}>
@@ -169,7 +114,6 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
                             </HelperText>
                         )}
 
-                        {/* Submit Button */}
                         <Button
                             mode="contained"
                             onPress={handleSubmit}
@@ -225,12 +169,5 @@ const styles = StyleSheet.create({
     },
     generalError: {
         marginTop: 10,
-    },
-    segmented: {
-        marginBottom: 5,
-    },
-    infoText: {
-        marginTop: 0,
-        marginBottom: 15,
     },
 });

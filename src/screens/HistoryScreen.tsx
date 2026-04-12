@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Text, Card, Chip, Divider, useTheme } from "react-native-paper";
+import { Text, useTheme } from "react-native-paper";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { db, openDatabase } from "../database/db";
 import { HistoryStackParamList } from "../navigation/HistoryNavigator";
+import { formatDate } from "../utils/format";
+import LoadingScreen from "../components/common/LoadingScreen";
+import WorkoutHistoryCard from "../components/history/WorkoutHistoryCard";
+import EmptyHistory from "../components/history/EmptyHistory";
 
 interface WorkoutHistoryItem {
     id: number;
@@ -45,7 +49,6 @@ export default function HistoryScreen() {
 
             const database = openDatabase();
 
-            // Get all completed workouts with their details
             const history = database.getAllSync(
                 `SELECT 
                     w.id,
@@ -68,10 +71,8 @@ export default function HistoryScreen() {
                 [(user as any).id],
             ) as WorkoutHistoryItem[];
 
-            // Calculate estimated 1RM for AMRAP sets
             const enrichedHistory = history.map((workout) => {
                 if (workout.amrap_reps) {
-                    // Get the AMRAP set weight
                     const amrapSet = database.getFirstSync(
                         `SELECT actual_weight, actual_reps FROM sets 
                          WHERE workout_id = ? AND is_amrap = 1 LIMIT 1`,
@@ -95,39 +96,8 @@ export default function HistoryScreen() {
         }
     };
 
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-
-        if (date.toDateString() === today.toDateString()) {
-            return "Today";
-        } else if (date.toDateString() === yesterday.toDateString()) {
-            return "Yesterday";
-        } else {
-            return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-        }
-    };
-
-    const getWeekLabel = (weekNumber: number) => {
-        const labels = {
-            1: "Week 1 (3×5)",
-            2: "Week 2 (3×3)",
-            3: "Week 3 (5/3/1)",
-            4: "Week 4 (Deload)",
-        };
-        return labels[weekNumber as keyof typeof labels] || `Week ${weekNumber}`;
-    };
-
     if (loading) {
-        return (
-            <SafeAreaView style={styles.safeArea}>
-                <View style={styles.loadingContainer}>
-                    <Text>Loading workout history...</Text>
-                </View>
-            </SafeAreaView>
-        );
+        return <LoadingScreen message="Loading workout history..." />;
     }
 
     return (
@@ -139,16 +109,7 @@ export default function HistoryScreen() {
                     </Text>
 
                     {workouts.length === 0 ? (
-                        <Card style={styles.emptyCard}>
-                            <Card.Content>
-                                <Text variant="bodyLarge" style={styles.emptyText}>
-                                    No workouts completed yet.
-                                </Text>
-                                <Text variant="bodyMedium" style={styles.emptySubtext}>
-                                    Start your first workout to see your progress here!
-                                </Text>
-                            </Card.Content>
-                        </Card>
+                        <EmptyHistory />
                     ) : (
                         <>
                             <Text variant="titleMedium" style={styles.statsText}>
@@ -164,9 +125,8 @@ export default function HistoryScreen() {
                                             {formatDate(workout.completed_at)}
                                         </Text>
                                     ) : null}
-
-                                    <Card
-                                        style={[styles.workoutCard, !!workout.is_pr && styles.prCard]}
+                                    <WorkoutHistoryCard
+                                        workout={workout}
                                         onPress={() =>
                                             navigation.navigate("WorkoutDetail", {
                                                 workoutId: workout.id,
@@ -177,62 +137,7 @@ export default function HistoryScreen() {
                                                 isPr: !!workout.is_pr,
                                             })
                                         }
-                                    >
-                                        <Card.Content>
-                                            <View style={styles.workoutHeader}>
-                                                <View style={styles.workoutInfo}>
-                                                    <Text variant="titleLarge">{workout.exercise_name}</Text>
-                                                    <Text variant="bodyMedium" style={styles.weekText}>
-                                                        {getWeekLabel(workout.week_number)}
-                                                    </Text>
-                                                </View>
-                                                {!!workout.is_pr && (
-                                                    <Chip
-                                                        mode="flat"
-                                                        style={styles.prChip}
-                                                        textStyle={styles.prChipText}
-                                                    >
-                                                        PR!
-                                                    </Chip>
-                                                )}
-                                            </View>
-
-                                            <Divider style={styles.divider} />
-
-                                            <View style={styles.statsRow}>
-                                                <View style={styles.stat}>
-                                                    <Text variant="bodySmall" style={styles.statLabel}>
-                                                        Training Max
-                                                    </Text>
-                                                    <Text variant="titleMedium">{workout.training_max_used} lbs</Text>
-                                                </View>
-
-                                                {workout.amrap_reps && (
-                                                    <View style={styles.stat}>
-                                                        <Text variant="bodySmall" style={styles.statLabel}>
-                                                            AMRAP Reps
-                                                        </Text>
-                                                        <Text variant="titleMedium" style={styles.amrapText}>
-                                                            {workout.amrap_reps} reps
-                                                        </Text>
-                                                    </View>
-                                                )}
-
-                                                {workout.estimated_1rm && (
-                                                    <View style={styles.stat}>
-                                                        <Text variant="bodySmall" style={styles.statLabel}>
-                                                            Est. 1RM
-                                                        </Text>
-                                                        <Text variant="titleMedium">{workout.estimated_1rm} lbs</Text>
-                                                    </View>
-                                                )}
-                                            </View>
-
-                                            <Text variant="bodySmall" style={styles.timestamp}>
-                                                {workout.total_sets} sets completed
-                                            </Text>
-                                        </Card.Content>
-                                    </Card>
+                                    />
                                 </React.Fragment>
                             ))}
                         </>
@@ -253,11 +158,6 @@ const styles = StyleSheet.create({
     content: {
         padding: 20,
     },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-    },
     title: {
         marginBottom: 20,
         textAlign: "center",
@@ -271,67 +171,5 @@ const styles = StyleSheet.create({
         marginBottom: 10,
         color: "#666",
         fontWeight: "bold",
-    },
-    workoutCard: {
-        marginBottom: 15,
-    },
-    prCard: {
-        borderLeftWidth: 4,
-        borderLeftColor: "#FFD700",
-    },
-    workoutHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "flex-start",
-        marginBottom: 10,
-    },
-    workoutInfo: {
-        flex: 1,
-    },
-    weekText: {
-        marginTop: 4,
-        color: "#666",
-    },
-    prChip: {
-        backgroundColor: "#FFD700",
-    },
-    prChipText: {
-        color: "#000",
-        fontWeight: "bold",
-    },
-    divider: {
-        marginVertical: 12,
-    },
-    statsRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        marginBottom: 10,
-    },
-    stat: {
-        flex: 1,
-    },
-    statLabel: {
-        color: "#666",
-        marginBottom: 4,
-    },
-    amrapText: {
-        color: "#6200ee",
-        fontWeight: "bold",
-    },
-    timestamp: {
-        marginTop: 8,
-        color: "#999",
-        fontStyle: "italic",
-    },
-    emptyCard: {
-        marginTop: 40,
-    },
-    emptyText: {
-        textAlign: "center",
-        marginBottom: 10,
-    },
-    emptySubtext: {
-        textAlign: "center",
-        color: "#666",
     },
 });

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Text, Card, Button, Divider, useTheme } from "react-native-paper";
+import { Text, Button, useTheme } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RouteProp } from "@react-navigation/native";
 import { DashboardStackParamList } from "../navigation/DashboardNavigator";
 import { db } from "../database/db";
+import TrainingMaxProgressionCard from "../components/cycle-complete/TrainingMaxProgressionCard";
+import WhatHappensNextCard from "../components/cycle-complete/WhatHappensNextCard";
 
 type CycleCompleteScreenRouteProp = RouteProp<DashboardStackParamList, "CycleComplete">;
 type CycleCompleteScreenNavigationProp = NativeStackNavigationProp<DashboardStackParamList, "CycleComplete">;
@@ -40,11 +42,9 @@ export default function CycleCompleteScreen() {
         const user = db.getCurrentUser() as any;
         if (!user) return;
 
-        // Load which lifts were skipped this cycle
         const skipped = db.getSkippedExerciseIds(cycleId);
         setSkippedExerciseIds(skipped);
 
-        // Also load swap config to show substitute names
         const fullConfig = db.getLiftConfig(cycleId);
         const swapMap: Record<number, string> = {};
         fullConfig.forEach((c) => {
@@ -74,9 +74,7 @@ export default function CycleCompleteScreen() {
         try {
             const user = db.getCurrentUser() as any;
             if (!user) return;
-
             db.progressToNextCycle(user.id, cycleId, trainingDays as 3 | 4, 1, skippedExerciseIds);
-
             navigation.navigate("Dashboard");
         } catch (error) {
             console.error("Error progressing cycle:", error);
@@ -100,99 +98,13 @@ export default function CycleCompleteScreen() {
                         Outstanding work! You've completed all 4 weeks of training.
                     </Text>
 
-                    <Card style={styles.progressionCard}>
-                        <Card.Content>
-                            <Text variant="titleLarge" style={styles.sectionTitle}>
-                                Training Max Progression
-                            </Text>
-                            <Text variant="bodySmall" style={styles.progressionNote}>
-                                Your training maxes will be updated automatically:
-                            </Text>
+                    <TrainingMaxProgressionCard activeChanges={activeChanges} skippedChanges={skippedChanges} />
 
-                            <Divider style={styles.divider} />
-
-                            {/* Active lifts — get their TM bump */}
-                            {activeChanges.map((change, index) => {
-                                const isLower = change.category === "squat" || change.category === "deadlift";
-                                const displayName = change.substitute_name ?? change.exercise_name;
-                                return (
-                                    <View key={index} style={styles.maxRow}>
-                                        <View style={styles.exerciseInfo}>
-                                            <Text variant="titleMedium">{displayName}</Text>
-                                            {change.substitute_name ? (
-                                                <Text variant="bodySmall" style={styles.swapNote}>
-                                                    ↔ {change.exercise_name} slot • {isLower ? "+10 lbs" : "+5 lbs"}
-                                                </Text>
-                                            ) : (
-                                                <Text variant="bodySmall" style={styles.categoryText}>
-                                                    {isLower ? "Lower body +10 lbs" : "Upper body +5 lbs"}
-                                                </Text>
-                                            )}
-                                        </View>
-                                        <View style={styles.maxValues}>
-                                            <Text variant="bodySmall" style={styles.oldMax}>
-                                                {change.old_training_max} lbs
-                                            </Text>
-                                            <Text style={styles.arrow}>→</Text>
-                                            <Text variant="titleMedium" style={styles.newMax}>
-                                                {change.new_training_max} lbs
-                                            </Text>
-                                        </View>
-                                    </View>
-                                );
-                            })}
-
-                            {/* Skipped lifts — TM stays the same */}
-                            {skippedChanges.length > 0 && (
-                                <>
-                                    <Divider style={styles.divider} />
-                                    <Text variant="bodySmall" style={styles.skippedSectionLabel}>
-                                        SKIPPED THIS CYCLE — NO CHANGE
-                                    </Text>
-                                    {skippedChanges.map((change, index) => (
-                                        <View key={`skipped-${index}`} style={[styles.maxRow, styles.skippedRow]}>
-                                            <View style={styles.exerciseInfo}>
-                                                <Text variant="titleMedium" style={styles.skippedText}>
-                                                    {change.exercise_name}
-                                                </Text>
-                                                <Text variant="bodySmall" style={styles.skippedText}>
-                                                    TM frozen — 0 lbs added
-                                                </Text>
-                                            </View>
-                                            <Text variant="bodySmall" style={styles.skippedMax}>
-                                                {change.old_training_max} lbs
-                                            </Text>
-                                        </View>
-                                    ))}
-                                </>
-                            )}
-                        </Card.Content>
-                    </Card>
-
-                    <Card style={styles.infoCard}>
-                        <Card.Content>
-                            <Text variant="titleMedium" style={styles.infoTitle}>
-                                What happens next?
-                            </Text>
-                            <Text variant="bodyMedium" style={styles.infoText}>
-                                • New Cycle #{cycleNumber + 1} will begin
-                            </Text>
-                            <Text variant="bodyMedium" style={styles.infoText}>
-                                • Training maxes are increased for active lifts
-                            </Text>
-                            {skippedChanges.length > 0 && (
-                                <Text variant="bodyMedium" style={styles.infoText}>
-                                    • Skipped lifts resume in the new cycle (you can re-skip if needed)
-                                </Text>
-                            )}
-                            <Text variant="bodyMedium" style={styles.infoText}>
-                                • Keep the same training split ({trainingDays}-day)
-                            </Text>
-                            <Text variant="bodyMedium" style={styles.infoText}>
-                                • Start fresh with Week 1
-                            </Text>
-                        </Card.Content>
-                    </Card>
+                    <WhatHappensNextCard
+                        nextCycleNumber={cycleNumber + 1}
+                        trainingDays={trainingDays}
+                        hasSkippedLifts={skippedChanges.length > 0}
+                    />
 
                     <Button
                         mode="contained"
@@ -244,83 +156,6 @@ const styles = StyleSheet.create({
         textAlign: "center",
         color: "#666",
         marginBottom: 30,
-    },
-    progressionCard: {
-        width: "100%",
-        marginBottom: 20,
-    },
-    sectionTitle: {
-        marginBottom: 8,
-        fontWeight: "bold",
-    },
-    progressionNote: {
-        color: "#666",
-        marginBottom: 15,
-    },
-    divider: {
-        marginBottom: 15,
-    },
-    maxRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 15,
-    },
-    exerciseInfo: {
-        flex: 1,
-    },
-    categoryText: {
-        color: "#4CAF50",
-        marginTop: 2,
-    },
-    swapNote: {
-        color: "#FF9800",
-        fontStyle: "italic",
-        marginTop: 2,
-    },
-    maxValues: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 8,
-    },
-    oldMax: {
-        color: "#999",
-        textDecorationLine: "line-through",
-    },
-    arrow: {
-        color: "#6200ea",
-        fontWeight: "bold",
-    },
-    newMax: {
-        color: "#6200ea",
-        fontWeight: "bold",
-    },
-    skippedSectionLabel: {
-        color: "#999",
-        fontWeight: "bold",
-        letterSpacing: 1,
-        marginBottom: 12,
-    },
-    skippedRow: {
-        opacity: 0.6,
-    },
-    skippedText: {
-        color: "#999",
-    },
-    skippedMax: {
-        color: "#999",
-    },
-    infoCard: {
-        width: "100%",
-        marginBottom: 30,
-    },
-    infoTitle: {
-        marginBottom: 12,
-        fontWeight: "bold",
-    },
-    infoText: {
-        marginBottom: 6,
-        color: "#444",
     },
     continueButton: {
         width: "100%",
