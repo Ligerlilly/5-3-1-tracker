@@ -395,7 +395,11 @@ export default function WorkoutScreen() {
     return (
         <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]} edges={["top"]}>
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardAvoid}>
-                <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+                <ScrollView
+                    style={styles.container}
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                >
                     <View style={styles.content}>
                         <Text variant="headlineMedium" style={styles.title}>
                             {substituteName ?? exercise?.name}
@@ -559,6 +563,9 @@ const styles = StyleSheet.create({
     },
     container: {
         flex: 1,
+    },
+    scrollContent: {
+        flexGrow: 1,
     },
     content: {
         padding: 20,
